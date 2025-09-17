@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packaging Integrity Test System v6.0</title>
+    <link rel="icon" type="image/png" href="img/favicon-32x32.png">
+    <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Library Eksternal -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <script type="module" src="js/app.js"></script>
+</head>
+<body>
+    <header class="header">
+        <div class="logo-container">
+            <img src="img/logo.png" alt="Arnott's Group Logo" class="logo">
+        </div>
+        <div class="header-text">
+            <h1>Packaging Integrity Test System</h1>
+            <p>R&D Packaging Development</p>
+        </div>
+        <div class="header-meta">
+            <div class="version-info">
+                v6.0.0 <a href="#" id="changelog-link">(Changelog)</a>
+            </div>
+            <button id="theme-toggle" class="theme-toggle" title="Toggle Dark Mode">
+                <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm-.707 10.607a1 1 0 011.414-1.414l.707.707a1 1 0 11-1.414 1.414l-.707-.707zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"/></svg>
+                <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/></svg>
+            </button>
+        </div>
+    </header>
+    
+    <div class="container">
+        <main class="tab-content"></main>
+    </div>
+
+    <nav class="floating-nav">
+        <div class="nav-background"></div>
+        <div id="nav-lamp" class="nav-lamp">
+            <div class="lamp-light"></div>
+        </div>
+        <button class="nav-tab active" data-tab="dashboard">📊<span class="nav-text">Dashboard</span></button>
+        <button class="nav-tab" data-tab="new-test">➕<span class="nav-text">Test Baru</span></button>
+        <button class="nav-tab" data-tab="test-list">📋<span class="nav-text">Daftar Test</span></button>
+        <button class="nav-tab" data-tab="reports">📈<span class="nav-text">Laporan</span></button>
+        <button class="nav-tab" data-tab="benchmark">⚖️<span class="nav-text">Benchmark</span></button>
+    </nav>
+
+    <footer class="footer">
+        <p>© 2025 R&D Packaging Development | Developed by <a href="mailto:yuradhyan_ramadhan@arnotts.com">Yuradhyan</a></p>
+    </footer>
+
+    <div id="notification-container"></div>
+
+    <div id="select-test-type-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h2>Pilih Tipe Test</h2><button class="btn-close-modal">✕</button></div>
+            <div class="modal-body">
+                <p>Pilih jenis pengujian yang ingin Anda catat:</p>
+                <div class="test-type-selection">
+                    <button class="btn btn-primary" data-test-type="transport">🚚 Transport Test</button>
+                    <button class="btn btn-secondary" data-test-type="handling">📦 Handling Test</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="test-detail-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Detail Test</h2>
+                <div class="modal-actions">
+                    <button id="export-single-pdf-btn" class="btn btn-primary">📥 Ekspor PDF</button>
+                    <button class="btn-close-modal">✕</button>
+                </div>
+            </div>
+            <div id="test-detail-content" class="modal-body"></div>
+        </div>
+    </div>
+
+    <div id="benchmark-results-modal" class="modal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header"><h2>Hasil Perbandingan</h2><button class="btn-close-modal">✕</button></div>
+            <div id="benchmark-results-content" class="modal-body"></div>
+        </div>
+    </div>
+    
+    <div id="changelog-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header"><h2>Version History</h2><button class="btn-close-modal">✕</button></div>
+            <div class="modal-body">
+                <h4>Version 6.0 (Current)</h4>
+                <ul>
+                    <li><span class="cl-tag cl-new">New</span> Definitive, stable, and fully integrated build.</li>
+                    <li><span class="cl-tag cl-fix">Fix</span> Addressed all outstanding bugs and inconsistencies.</li>
+                </ul>
+                <hr class="divider">
+                <h4>Version 5.x</h4>
+                <ul>
+                    <li><span class="cl-tag cl-new">New</span> Implemented "Tubelight" floating navigation and finalized PDF reporting.</li>
+                </ul>
+                <hr class="divider">
+                <h4>Version 4.x</h4>
+                <ul>
+                    <li><span class="cl-tag cl-new">New</span> Activated all core features including dynamic dashboard, test list with delete, and benchmark placeholder.</li>
+                    <li><span class="cl-tag cl-enhancement">Enhancement</span> Redesigned data input flow for improved accuracy.</li>
+                </ul>
+                <hr class="divider">
+                <h4>Version 1.0 - 3.0</h4>
+                <ul>
+                    <li><span class="cl-tag cl-new">New</span> Initial application development, modularization, and implementation of core features like Dark Mode, image compression, and the product-centric data model.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== TEMPLATES ===== -->
+    <template id="dashboard-filters-template">
+        <div class="form-section filters">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="brand-filter">Tampilkan Statistik untuk Brand:</label>
+                    <select id="brand-filter"><option value="all">Semua Brand</option></select>
+                </div>
+                <div class="form-group">
+                    <label for="sku-filter">dan SKU:</label>
+                    <select id="sku-filter"><option value="all">Semua SKU</option></select>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="new-test-form-template">
+        <form id="test-form" novalidate>
+            <div class="form-section">
+                <h3>📝 Informasi Umum (<span class="test-type-display"></span>)</h3>
+                <div class="form-grid">
+                    <div class="form-group"><label for="dateOfTest">Tanggal Test *</label><input type="date" id="dateOfTest" required></div>
+                    <div class="form-group"><label for="testerName">Nama Pengecek *</label><input type="text" id="testerName" placeholder="Nama petugas" required></div>
+                    <div class="form-group"><label for="brandName">Nama Brand *</label><input type="text" id="brandName" placeholder="Contoh: Good Time" required></div>
+                    <div class="form-group"><label for="productName">Nama Produk *</label><input type="text" id="productName" placeholder="Contoh: Kukis Retail Premium" required></div>
+                    <div class="form-group"><label for="productSku">SKU Produk *</label><input type="text" id="productSku" placeholder="Contoh: KRP-001" required></div>
+                </div>
+                <div id="transport-fields-container" class="hidden" style="margin-top: 20px;"></div>
+                <div class="form-group" style="margin-top: 20px;"><label for="testNotes">Catatan Umum Test</label><textarea id="testNotes" placeholder="Tuliskan catatan umum atau tujuan dari test ini"></textarea></div>
+            </div>
+            <div class="form-section">
+                <h3>📦 Data Case & Inspeksi Produk</h3>
+                <button type="button" class="btn btn-primary" id="btn-add-case">➕ Tambah Case</button>
+                <div id="cases-container" style="margin-top: 20px;"></div>
+            </div>
+            <div class="form-section">
+                <h3>📊 Kesimpulan & Rekomendasi</h3>
+                <div class="form-group"><label for="overallConclusion">Kesimpulan Keseluruhan</label><textarea id="overallConclusion" placeholder="Tuliskan kesimpulan dari hasil test"></textarea></div>
+                <div class="form-group"><label for="recommendations">Rekomendasi</label><textarea id="recommendations" placeholder="Tuliskan rekomendasi untuk perbaikan"></textarea></div>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" id="btn-reset-form">🔄 Reset</button>
+                <button type="submit" class="btn btn-success">💾 Simpan Test</button>
+            </div>
+        </form>
+    </template>
+
+    <template id="transport-fields-template">
+        <h5 class="sub-header">Detail Transportasi</h5>
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="transportMethod">Metode Transportasi *</label>
+                <select id="transportMethod" required>
+                    <option value="">Pilih metode</option>
+                    <option value="truck">Truck</option>
+                    <option value="train">Kereta</option>
+                    <option value="ship">Kapal</option>
+                    <option value="plane">Pesawat</option>
+                </select>
+            </div>
+            <div class="form-group"><label for="originLocation">Lokasi Asal *</label><input type="text" id="originLocation" placeholder="Contoh: Jakarta" required></div>
+            <div class="form-group"><label for="destinationLocation">Lokasi Tujuan *</label><input type="text" id="destinationLocation" placeholder="Contoh: Surabaya" required></div>
+            <div class="form-group"><label for="transportDuration">Durasi Transport</label><input type="text" id="transportDuration" placeholder="Contoh: 2 hari"></div>
+        </div>
+    </template>
+
+    <template id="list-item-template">
+        <div class="list-item">
+            <div class="list-item-main">
+                <h4></h4>
+                <p></p>
+            </div>
+            <div class="list-item-meta">
+                <div class="badge"></div>
+                <button class="btn btn-danger btn-delete-test">Hapus</button>
+            </div>
+        </div>
+    </template>
+
+    <template id="reports-template">
+        <div class="form-section">
+            <h3>📈 Buat Laporan PDF Ringkas</h3>
+            <p>Pilih rentang tanggal untuk membuat laporan PDF ringkas yang berisi tabel semua test pada periode tersebut.</p>
+            <div class="form-grid">
+                <div class="form-group"><label for="report-from-date">Dari Tanggal:</label><input type="date" id="report-from-date"></div>
+                <div class="form-group"><label for="report-to-date">Sampai Tanggal:</label><input type="date" id="report-to-date"></div>
+            </div>
+            <button id="generate-summary-pdf-btn" class="btn btn-primary" style="margin-top: 20px;">📥 Generate Laporan Ringkas</button>
+        </div>
+    </template>
+
+    <template id="benchmark-template">
+        <div class="form-section">
+            <div class="benchmark-header">
+                <h3>⚖️ Pilih Test untuk Dibandingkan</h3>
+                <button id="clear-benchmark-selection-btn" class="btn btn-secondary">Clear Selection</button>
+            </div>
+            <div id="benchmark-list-container" class="list-container"></div>
+            <button id="compare-btn" class="btn btn-success" style="margin-top: 20px;" disabled>Bandingkan Test Terpilih</button>
+        </div>
+    </template>
+
+    <template id="benchmark-results-template">
+        <div id="benchmark-table-container"></div>
+        <div class="chart-container" style="margin-top: 30px;">
+            <h4>Perbandingan Total Produk Gagal</h4>
+            <canvas id="benchmarkChart"></canvas>
+        </div>
+    </template>
+
+    <template id="case-card-template">
+        <div class="case-card">
+            <div class="case-header"><h4>📦 Case <span class="case-number"></span></h4><button type="button" class="btn btn-danger btn-remove-case">🗑️ Hapus</button></div>
+            <div class="form-grid">
+                <div class="form-group"><label>Posisi Case *</label><select class="case-position" required><option value="">Pilih posisi</option><option value="top">Atas</option><option value="middle">Tengah</option><option value="bottom">Bawah</option></select></div>
+                <div class="form-group"><label>Total Unit Diinspeksi /Case *</label><input type="number" class="total-units-inspected" min="1" required></div>
+            </div>
+            <h5 class="sub-header">Kerusakan Case</h5>
+            <div class="form-grid">
+                <div class="form-group"><label>Jenis Kerusakan Case</label><select class="case-damage-type"><option value="none">Tidak Ada Kerusakan</option><option value="dent">Penyok (Dent)</option><option value="tear">Sobek (Tear)</option><option value="wet">Basah/Lembab (Wet/Moist)</option><option value="opened">Segel Terbuka (Opened Seal)</option></select></div>
+                <div class="form-group"><label>Foto Kerusakan Case</label><input type="file" class="case-image-input" accept="image/*"><img class="image-preview" hidden></div>
+            </div>
+            <div class="form-group"><label>Deskripsi Kerusakan Case</label><textarea class="case-damage-description" placeholder="Deskripsikan kondisi spesifik case"></textarea></div>
+            <hr class="divider">
+            <h5 class="sub-header">Catatan Mode Kegagalan Produk (Kukis)</h5>
+            <div class="product-failures-container"></div>
+            <button type="button" class="btn btn-outline btn-add-failure" style="margin-top: 15px;">➕ Catat Mode Kegagalan</button>
+        </div>
+    </template>
+
+    <template id="product-failure-template">
+        <div class="product-failure-item">
+            <div class="failure-header"><h6>Catatan Kegagalan</h6><button type="button" class="btn btn-danger btn-remove-failure">✕</button></div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Mode Kegagalan *</label>
+                    <select class="failure-mode" required>
+                        <option value="">Pilih mode</option>
+                        <option value="broken">Patah</option>
+                        <option value="crushed">Hancur</option>
+                        <option value="chipped">Chipping/Gompel</option>
+                        <option value="melted">Meleleh</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Jumlah Unit Gagal *</label><input type="number" class="units-failed" min="1" required></div>
+            </div>
+            <div class="form-group"><label>Foto Bukti Kegagalan</label><input type="file" class="product-image-input" accept="image/*"><img class="image-preview" hidden></div>
+        </div>
+    </template>
+</body>
+</html>
