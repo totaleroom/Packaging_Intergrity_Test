@@ -288,13 +288,27 @@ export function addProductFailureToUI(addButton) {
     container.appendChild(clone);
 }
 
+const imageObjectURLs = new Set();
+
 export function previewImage(inputElement) {
     const preview = inputElement.nextElementSibling;
     const file = inputElement.files[0];
     if (file) {
-        preview.src = URL.createObjectURL(file);
+        if (preview.src && preview.src.startsWith('blob:')) {
+            URL.revokeObjectURL(preview.src);
+            imageObjectURLs.delete(preview.src);
+        }
+
+        const objectURL = URL.createObjectURL(file);
+        preview.src = objectURL;
         preview.hidden = false;
+        imageObjectURLs.add(objectURL);
     }
+}
+
+export function cleanupImagePreviews() {
+    imageObjectURLs.forEach(url => URL.revokeObjectURL(url));
+    imageObjectURLs.clear();
 }
 
 function showModal(modalId) {
@@ -312,10 +326,15 @@ export function hideSelectTestTypeModal() { hideModal('select-test-type-modal');
 export function showBenchmarkResultsModal() { showModal('benchmark-results-modal'); }
 export function hideBenchmarkResultsModal() { hideModal('benchmark-results-modal'); }
 
+const modalImageURLs = new Set();
+
 export async function showTestDetailModal(test, imageFetcher) {
     const modal = document.getElementById('test-detail-modal');
     const content = document.getElementById('test-detail-content');
     if (!modal || !content) return;
+
+    modalImageURLs.forEach(url => URL.revokeObjectURL(url));
+    modalImageURLs.clear();
 
     content.innerHTML = `<div class="spinner-container"><div class="spinner"></div><p>Loading details...</p></div>`;
     showModal('test-detail-modal');
@@ -327,6 +346,7 @@ export async function showTestDetailModal(test, imageFetcher) {
                 const imageBlob = await imageFetcher(caseItem.caseDamage.imageId);
                 if (imageBlob) {
                     const objectURL = URL.createObjectURL(imageBlob);
+                    modalImageURLs.add(objectURL);
                     caseImageHtml = `<p><strong>Foto Kerusakan Case:</strong></p><img src="${objectURL}" class="detail-image">`;
                 }
             }
@@ -337,6 +357,7 @@ export async function showTestDetailModal(test, imageFetcher) {
                     const imageBlob = await imageFetcher(failure.imageId);
                     if (imageBlob) {
                         const objectURL = URL.createObjectURL(imageBlob);
+                        modalImageURLs.add(objectURL);
                         failureImageHtml = `<p><strong>Foto Bukti:</strong></p><img src="${objectURL}" class="detail-image">`;
                     }
                 }
@@ -384,7 +405,11 @@ export async function showTestDetailModal(test, imageFetcher) {
     }
 }
 
-export function hideTestDetailModal() { hideModal('test-detail-modal'); }
+export function hideTestDetailModal() {
+    modalImageURLs.forEach(url => URL.revokeObjectURL(url));
+    modalImageURLs.clear();
+    hideModal('test-detail-modal');
+}
 
 export function showNotification(message, type = 'success') {
     const container = document.getElementById('notification-container');

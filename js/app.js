@@ -9,10 +9,34 @@ import * as ui from './ui.js';
 import * as imageStore from './imageStore.js';
 
 const IMAGE_COMPRESSION_QUALITY = 0.7;
+const FILTER_STATE_KEY = 'dashboard_filters_v6';
 const state = {
     database: null,
-    activeTab: 'dashboard'
+    activeTab: 'dashboard',
+    dashboardFilters: {
+        brand: 'all',
+        sku: 'all'
+    }
 };
+
+function loadFilterState() {
+    try {
+        const saved = localStorage.getItem(FILTER_STATE_KEY);
+        if (saved) {
+            state.dashboardFilters = JSON.parse(saved);
+        }
+    } catch (error) {
+        console.error('Failed to load filter state:', error);
+    }
+}
+
+function saveFilterState() {
+    try {
+        localStorage.setItem(FILTER_STATE_KEY, JSON.stringify(state.dashboardFilters));
+    } catch (error) {
+        console.error('Failed to save filter state:', error);
+    }
+}
 
 // --- DEKLARASI FUNGSI UTAMA ---
 
@@ -38,13 +62,16 @@ function navigateToTab(tabName) {
     showActiveTabContent();
 }
 
-function showActiveTabContent() {
+async function showActiveTabContent() {
     try {
+        state.database = await db.getDatabase();
+
         switch (state.activeTab) {
             case 'dashboard':
                 const allBrands = [...new Set(state.database.tests.map(t => t.brandName).filter(Boolean))];
                 const allSkus = [...new Set(state.database.tests.map(t => t.productSku).filter(Boolean))];
-                ui.renderDashboard(calculateStatistics(), allBrands, allSkus);
+                const filteredStats = calculateStatistics(state.dashboardFilters.brand, state.dashboardFilters.sku);
+                ui.renderDashboard(filteredStats, allBrands, allSkus);
                 attachDashboardListeners();
                 break;
             case 'test-list':
@@ -84,13 +111,13 @@ function attachGlobalListeners() {
             ui.hideChangelogModal();
         }
     });
-    document.getElementById('test-detail-modal').addEventListener('click', (e) => {
+    document.getElementById('test-detail-modal').addEventListener('click', async (e) => {
         if (e.target.matches('.btn-close-modal') || e.target.classList.contains('modal')) {
             ui.hideTestDetailModal();
         }
         if (e.target.matches('#export-single-pdf-btn')) {
             const testId = parseInt(e.target.closest('.modal').dataset.testid);
-            const test = db.getTestById(testId);
+            const test = await db.getTestById(testId);
             if (test) generateSingleTestPdfReport(test);
         }
     });
@@ -120,17 +147,23 @@ function attachDashboardListeners() {
     const brandFilter = document.getElementById('brand-filter');
     const skuFilter = document.getElementById('sku-filter');
 
+    if (brandFilter) brandFilter.value = state.dashboardFilters.brand;
+    if (skuFilter) skuFilter.value = state.dashboardFilters.sku;
+
     const updateDashboardView = () => {
         const selectedBrand = brandFilter.value;
         const selectedSku = skuFilter.value;
+
+        state.dashboardFilters.brand = selectedBrand;
+        state.dashboardFilters.sku = selectedSku;
+        saveFilterState();
+
         const filteredStats = calculateStatistics(selectedBrand, selectedSku);
-        
+
         const allBrands = [...new Set(state.database.tests.map(t => t.brandName).filter(Boolean))];
         const allSkus = [...new Set(state.database.tests.map(t => t.productSku).filter(Boolean))];
-        
+
         ui.renderDashboard(filteredStats, allBrands, allSkus);
-        document.getElementById('brand-filter').value = selectedBrand;
-        document.getElementById('sku-filter').value = selectedSku;
         attachDashboardListeners();
     };
 
@@ -175,13 +208,17 @@ async function handleContentClick(e) {
         const testId = parseInt(listItem.dataset.id);
         if (e.target.matches('.btn-delete-test')) {
             if (confirm('Apakah Anda yakin ingin menghapus test ini? Tindakan ini tidak bisa dibatalkan.')) {
-                db.deleteTest(testId);
-                state.database = db.getDatabase();
-                ui.showNotification("Test berhasil dihapus.", "success");
-                showActiveTabContent();
+                try {
+                    await db.deleteTest(testId);
+                    state.database = await db.getDatabase();
+                    ui.showNotification("Test berhasil dihapus.", "success");
+                    await showActiveTabContent();
+                } catch (error) {
+                    ui.showNotification("Gagal menghapus test.", "error");
+                }
             }
         } else if (e.target.closest('.list-item-main')) {
-            const test = db.getTestById(testId);
+            const test = await db.getTestById(testId);
             if (test) {
                 document.getElementById('test-detail-modal').dataset.testid = test.id;
                 await ui.showTestDetailModal(test, imageStore.getImage);
@@ -206,12 +243,33 @@ function attachNewTestFormListeners(testType) {
     const form = document.getElementById('test-form');
     if (!form) return;
     let caseCounter = 0;
+
+    const updateCaseNumbers = () => {
+        const caseCards = form.querySelectorAll('.case-card');
+        caseCards.forEach((card, index) => {
+            const caseNumber = card.querySelector('.case-number');
+            if (caseNumber) caseNumber.textContent = index + 1;
+        });
+    };
+
     form.addEventListener('click', (e) => {
-        if (e.target.matches('#btn-add-case')) { caseCounter++; ui.addCaseCardToUI(caseCounter); }
-        if (e.target.matches('.btn-remove-case')) { e.target.closest('.case-card')?.remove(); }
+        if (e.target.matches('#btn-add-case')) {
+            caseCounter++;
+            ui.addCaseCardToUI(caseCounter);
+            updateCaseNumbers();
+        }
+        if (e.target.matches('.btn-remove-case')) {
+            e.target.closest('.case-card')?.remove();
+            updateCaseNumbers();
+        }
         if (e.target.matches('.btn-add-failure')) { ui.addProductFailureToUI(e.target); }
         if (e.target.matches('.btn-remove-failure')) { e.target.closest('.product-failure-item')?.remove(); }
-        if (e.target.matches('#btn-reset-form')) { form.reset(); document.getElementById('cases-container').innerHTML = ''; caseCounter = 0; }
+        if (e.target.matches('#btn-reset-form')) {
+            form.reset();
+            document.getElementById('cases-container').innerHTML = '';
+            caseCounter = 0;
+            ui.cleanupImagePreviews();
+        }
     });
     form.addEventListener('change', e => {
         if (e.target.matches('.case-image-input, .product-image-input')) { ui.previewImage(e.target); }
@@ -232,8 +290,8 @@ async function handleFormSubmit(e, testType) {
     submitButton.innerHTML = `<div class="spinner"></div> Saving...`;
     try {
         const testData = await getFormDataWithImages(testType);
-        db.addTest(testData);
-        state.database = db.getDatabase();
+        await db.addTest(testData);
+        state.database = await db.getDatabase();
         ui.showNotification("Test data saved successfully!", "success");
         navigateToTab('test-list');
     } catch (error) {
@@ -367,50 +425,75 @@ function calculateStatistics(filterBrand = 'all', filterSku = 'all', testArray =
 }
 
 async function generateSummaryPdfReport() {
-    ui.showNotification("Membuat laporan ringkas...", "info");
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    
-    const fromDate = document.getElementById('report-from-date').value;
-    const toDate = document.getElementById('report-to-date').value;
-    let testsToReport = state.database.tests.filter(t => {
-        if (fromDate && t.dateOfTest < fromDate) return false;
-        if (toDate && t.dateOfTest > toDate) return false;
-        return true;
-    });
+    try {
+        ui.showNotification("Membuat laporan ringkas...", "info");
 
-    if (testsToReport.length === 0) {
-        ui.showNotification("Tidak ada data untuk dilaporkan pada periode ini.", "error");
-        return;
+        if (!window.jspdf) {
+            throw new Error('jsPDF library not loaded');
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        const fromDate = document.getElementById('report-from-date').value;
+        const toDate = document.getElementById('report-to-date').value;
+        let testsToReport = state.database.tests.filter(t => {
+            if (fromDate && t.dateOfTest < fromDate) return false;
+            if (toDate && t.dateOfTest > toDate) return false;
+            return true;
+        });
+
+        if (testsToReport.length === 0) {
+            ui.showNotification("Tidak ada data untuk dilaporkan pada periode ini.", "error");
+            return;
+        }
+
+        const logoImg = document.querySelector('.logo');
+        if (logoImg && logoImg.complete) {
+            try {
+                doc.addImage(logoImg, 'PNG', 14, 12, 30, 10);
+            } catch (error) {
+                console.error('Failed to add logo to PDF:', error);
+            }
+        }
+
+        doc.setFontSize(18);
+        doc.text("Laporan Ringkas Packaging Test", 105, 20, { align: 'center' });
+        doc.setFontSize(10);
+        doc.text(`v6.0.0 | Dibuat: ${new Date().toLocaleDateString()}`, 105, 26, { align: 'center' });
+
+        const tableData = testsToReport.map(t => {
+            const totalFailed = t.cases.reduce((sum, c) => sum + c.productFailures.reduce((s, f) => s + f.unitsFailed, 0), 0);
+            return [t.dateOfTest, t.brandName, t.productSku, t.testType, totalFailed, t.testerName];
+        });
+
+        doc.autoTable({
+            head: [['Tanggal', 'Brand', 'SKU', 'Tipe Test', 'Total Gagal', 'Pengecek']],
+            body: tableData,
+            startY: 40,
+        });
+
+        doc.save(`laporan-ringkas-${Date.now()}.pdf`);
+        ui.showNotification("Laporan berhasil dibuat!", "success");
+    } catch (error) {
+        console.error('Failed to generate summary PDF:', error);
+        ui.showNotification("Gagal membuat laporan. Silakan coba lagi.", "error");
     }
-
-    const logoImg = document.querySelector('.logo');
-    doc.addImage(logoImg, 'PNG', 14, 12, 30, 10);
-    doc.setFontSize(18);
-    doc.text("Laporan Ringkas Packaging Test", 105, 20, { align: 'center' });
-    doc.setFontSize(10);
-    doc.text(`v6.0.0 | Dibuat: ${new Date().toLocaleDateString()}`, 105, 26, { align: 'center' });
-
-    const tableData = testsToReport.map(t => {
-        const totalFailed = t.cases.reduce((sum, c) => sum + c.productFailures.reduce((s, f) => s + f.unitsFailed, 0), 0);
-        return [t.dateOfTest, t.brandName, t.productSku, t.testType, totalFailed, t.testerName];
-    });
-    doc.autoTable({
-        head: [['Tanggal', 'Brand', 'SKU', 'Tipe Test', 'Total Gagal', 'Pengecek']],
-        body: tableData,
-        startY: 40,
-    });
-
-    doc.save(`laporan-ringkas-${Date.now()}.pdf`);
 }
 
 async function generateSingleTestPdfReport(test) {
-    ui.showNotification("Membuat laporan PDF detail...", "info");
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 14;
-    let cursorY = 0;
+    try {
+        ui.showNotification("Membuat laporan PDF detail...", "info");
+
+        if (!window.jspdf) {
+            throw new Error('jsPDF library not loaded');
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const margin = 14;
+        let cursorY = 0;
 
     const addHeader = (title) => {
         const logoImg = document.querySelector('.logo');
@@ -475,6 +558,9 @@ async function generateSingleTestPdfReport(test) {
 
     if (Object.keys(failureModeData).length > 0) {
         const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 800;
+        tempCanvas.height = 400;
+
         const tempChart = new Chart(tempCanvas.getContext('2d'), {
             type: 'bar',
             data: {
@@ -485,16 +571,41 @@ async function generateSingleTestPdfReport(test) {
                     backgroundColor: 'rgba(215, 20, 24, 0.7)'
                 }]
             },
-            options: { responsive: false, animation: false, devicePixelRatio: 2 }
+            options: {
+                responsive: false,
+                animation: {
+                    duration: 0,
+                    onComplete: null
+                },
+                devicePixelRatio: 2
+            },
+            plugins: [{
+                id: 'pdfRenderComplete',
+                afterRender: () => {
+                    tempChart._pdfReady = true;
+                }
+            }]
         });
-        
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
+
+        await new Promise((resolve) => {
+            const checkReady = () => {
+                if (tempChart._pdfReady) {
+                    resolve();
+                } else {
+                    setTimeout(checkReady, 50);
+                }
+            };
+            checkReady();
+        });
+
         const chartImgData = tempCanvas.toDataURL('image/png');
+        tempChart.destroy();
+
         checkPageBreak(100);
         doc.setFontSize(12);
         doc.text("Grafik Ringkasan Mode Kegagalan", margin, cursorY + 15);
         doc.addImage(chartImgData, 'PNG', margin, cursorY + 20, 180, 90);
+        cursorY += 110;
     }
 
     // Halaman Berikutnya: Detail Cases & Gambar
@@ -515,12 +626,28 @@ async function generateSingleTestPdfReport(test) {
         cursorY = doc.lastAutoTable.finalY;
 
         if (caseItem.caseDamage.imageId) {
-            const imgBlob = await imageStore.getImage(caseItem.caseDamage.imageId);
-            if (imgBlob) {
-                const imgBuffer = await imgBlob.arrayBuffer();
-                checkPageBreak(65);
-                doc.addImage(imgBuffer, 'JPEG', margin, cursorY + 5, 80, 60);
-                cursorY += 65;
+            try {
+                const imgBlob = await imageStore.getImage(caseItem.caseDamage.imageId);
+                if (imgBlob) {
+                    const imgBuffer = await imgBlob.arrayBuffer();
+                    const img = await createImageBitmap(imgBlob);
+                    const aspectRatio = img.width / img.height;
+                    const maxWidth = 80;
+                    const maxHeight = 60;
+                    let width = maxWidth;
+                    let height = maxWidth / aspectRatio;
+
+                    if (height > maxHeight) {
+                        height = maxHeight;
+                        width = maxHeight * aspectRatio;
+                    }
+
+                    checkPageBreak(height + 10);
+                    doc.addImage(imgBuffer, 'JPEG', margin, cursorY + 5, width, height);
+                    cursorY += height + 10;
+                }
+            } catch (error) {
+                console.error('Error adding case image to PDF:', error);
             }
         }
 
@@ -544,12 +671,28 @@ async function generateSingleTestPdfReport(test) {
                 cursorY = doc.lastAutoTable.finalY;
 
                 if (failure.imageId) {
-                    const imgBlob = await imageStore.getImage(failure.imageId);
-                    if (imgBlob) {
-                        const imgBuffer = await imgBlob.arrayBuffer();
-                        checkPageBreak(65);
-                        doc.addImage(imgBuffer, 'JPEG', margin, cursorY + 5, 80, 60);
-                        cursorY += 65;
+                    try {
+                        const imgBlob = await imageStore.getImage(failure.imageId);
+                        if (imgBlob) {
+                            const imgBuffer = await imgBlob.arrayBuffer();
+                            const img = await createImageBitmap(imgBlob);
+                            const aspectRatio = img.width / img.height;
+                            const maxWidth = 80;
+                            const maxHeight = 60;
+                            let width = maxWidth;
+                            let height = maxWidth / aspectRatio;
+
+                            if (height > maxHeight) {
+                                height = maxHeight;
+                                width = maxHeight * aspectRatio;
+                            }
+
+                            checkPageBreak(height + 10);
+                            doc.addImage(imgBuffer, 'JPEG', margin, cursorY + 5, width, height);
+                            cursorY += height + 10;
+                        }
+                    } catch (error) {
+                        console.error('Error adding failure image to PDF:', error);
                     }
                 }
             }
@@ -573,6 +716,11 @@ async function generateSingleTestPdfReport(test) {
 
     addFooter();
     doc.save(`Laporan_Test_${test.id}_${test.productSku}.pdf`);
+    ui.showNotification("Laporan PDF berhasil dibuat!", "success");
+    } catch (error) {
+        console.error('Failed to generate single test PDF:', error);
+        ui.showNotification("Gagal membuat laporan PDF. Silakan coba lagi.", "error");
+    }
 }
 
 function handleBenchmark() {
@@ -592,15 +740,21 @@ function handleBenchmark() {
 }
 
 // --- INISIALISASI APLIKASI ---
-function init() {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-        document.body.classList.add('dark-mode');
+async function init() {
+    try {
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+        }
+        loadFilterState();
+        state.database = await db.getDatabase();
+        attachGlobalListeners();
+        navigateToTab('dashboard');
+        console.log('Packaging Integrity Test System v6.0.0 Initialized.');
+    } catch (error) {
+        console.error('Failed to initialize app:', error);
+        ui.showNotification('Failed to load application. Please refresh.', 'error');
     }
-    state.database = db.getDatabase();
-    attachGlobalListeners();
-    navigateToTab('dashboard');
-    console.log('Packaging Integrity Test System v6.0.0 Initialized.');
 }
 
 document.addEventListener('DOMContentLoaded', init);

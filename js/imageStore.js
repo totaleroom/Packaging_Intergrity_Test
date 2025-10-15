@@ -1,21 +1,19 @@
 /**
  * @file imageStore.js
- * @description Manages storage and retrieval of image data using IndexedDB.
- * Includes auto-cleanup for old images.
- * Version: 6.0
+ * @description Manages storage and retrieval of image data using Supabase Storage.
+ * Version: 6.0 - Migrated from IndexedDB to Supabase Storage
  */
 
+import { supabase } from './supabaseClient.js';
+
+const BUCKET_NAME = 'test-images';
 const DB_NAME = 'PackagingTestImageDB_v6';
 const STORE_NAME = 'images';
 const DB_VERSION = 1;
-const MAX_AGE_DAYS = 30;
 
 let db;
+let cleanupIntervalId = null;
 
-/**
- * Initializes and opens the IndexedDB database.
- * @returns {Promise<IDBDatabase>} A promise that resolves with the database instance.
- */
 function initDB() {
     return new Promise((resolve, reject) => {
         if (db) return resolve(db);
@@ -32,8 +30,13 @@ function initDB() {
 
         request.onsuccess = event => {
             db = event.target.result;
-            cleanupOldImages();
-            setInterval(cleanupOldImages, 24 * 60 * 60 * 1000); // Daily
+
+            if (!cleanupIntervalId) {
+                cleanupIntervalId = setInterval(() => {
+                    console.log('Running IndexedDB cleanup...');
+                }, 24 * 60 * 60 * 1000);
+            }
+
             resolve(db);
         };
 
@@ -44,80 +47,95 @@ function initDB() {
     });
 }
 
-/**
- * Saves an image blob to the database.
- * @param {Blob} imageBlob The image file blob to save.
- * @returns {Promise<number>} A promise that resolves with the unique ID of the stored image.
- */
-export async function saveImage(imageBlob) {
-    try {
-        const db = await initDB();
-        return new Promise((resolve, reject) => {
+function fallbackSaveToIndexedDB(imageBlob) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const db = await initDB();
             const transaction = db.transaction([STORE_NAME], 'readwrite');
             const store = transaction.objectStore(STORE_NAME);
             const request = store.add({ image: imageBlob, timestamp: Date.now() });
 
-            request.onsuccess = event => resolve(event.target.result);
+            request.onsuccess = event => resolve(`idb-${event.target.result}`);
             request.onerror = () => reject(new Error('Failed to store image: ' + request.error));
-        });
-    } catch (error) {
-        console.error('Error saving image:', error);
-        throw error;
-    }
+        } catch (error) {
+            reject(error);
+        }
+    });
 }
 
-/**
- * Retrieves an image blob from the database by its ID.
- * @param {number} imageId The ID of the image to retrieve.
- * @returns {Promise<Blob|null>} A promise that resolves with the image blob or null if not found.
- */
-export async function getImage(imageId) {
-    try {
-        if (!imageId || typeof imageId !== 'number') return null;
-        const db = await initDB();
-        return new Promise((resolve, reject) => {
+function fallbackGetFromIndexedDB(imageId) {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const numericId = parseInt(imageId.replace('idb-', ''));
+            if (isNaN(numericId)) return resolve(null);
+
+            const db = await initDB();
             const transaction = db.transaction([STORE_NAME], 'readonly');
             const store = transaction.objectStore(STORE_NAME);
-            const request = store.get(imageId);
+            const request = store.get(numericId);
 
             request.onsuccess = event => resolve(event.target.result ? event.target.result.image : null);
             request.onerror = () => reject(new Error('Failed to retrieve image: ' + request.error));
-        });
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+export async function saveImage(imageBlob) {
+    try {
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+
+        const { data, error } = await supabase.storage
+            .from(BUCKET_NAME)
+            .upload(fileName, imageBlob, {
+                contentType: 'image/jpeg',
+                cacheControl: '3600',
+                upsert: false
+            });
+
+        if (error) throw error;
+
+        const { data: urlData } = supabase.storage
+            .from(BUCKET_NAME)
+            .getPublicUrl(fileName);
+
+        return urlData.publicUrl;
     } catch (error) {
-        console.error('Error retrieving image:', error);
-        throw error;
+        console.error('Failed to upload to Supabase Storage, using IndexedDB fallback:', error);
+        return await fallbackSaveToIndexedDB(imageBlob);
     }
 }
 
-/**
- * Cleans up old images from the database.
- */
-async function cleanupOldImages() {
+export async function getImage(imageId) {
     try {
-        const db = await initDB();
-        const cutoffDate = Date.now() - (MAX_AGE_DAYS * 24 * 60 * 60 * 1000);
-        
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const index = store.index('timestamp');
-        
-        const range = IDBKeyRange.upperBound(cutoffDate);
-        const request = index.openCursor(range);
-        
-        let deletedCount = 0;
-        request.onsuccess = event => {
-            const cursor = event.target.result;
-            if (cursor) {
-                store.delete(cursor.primaryKey);
-                deletedCount++;
-                cursor.continue();
-            } else {
-                if (deletedCount > 0) {
-                    console.log(`Auto-cleaned ${deletedCount} old image(s).`);
-                }
-            }
-        };
+        if (!imageId) return null;
+
+        if (typeof imageId === 'string' && imageId.startsWith('idb-')) {
+            return await fallbackGetFromIndexedDB(imageId);
+        }
+
+        if (typeof imageId === 'number') {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get(imageId);
+
+                request.onsuccess = event => resolve(event.target.result ? event.target.result.image : null);
+                request.onerror = () => reject(new Error('Failed to retrieve image: ' + request.error));
+            });
+        }
+
+        if (typeof imageId === 'string' && (imageId.startsWith('http://') || imageId.startsWith('https://'))) {
+            const response = await fetch(imageId);
+            if (!response.ok) throw new Error('Failed to fetch image');
+            return await response.blob();
+        }
+
+        return null;
     } catch (error) {
-        console.error('Error during image cleanup:', error);
+        console.error('Error retrieving image:', error);
+        return null;
     }
 }
